@@ -9,6 +9,8 @@ namespace SshPlayground;
 public class SshWsShellHandler : IDisposable
 {
     private SshClient? _client;
+    private bool _closed;
+    private object _closeMutex = new();
     private WebSocket? _ws;
     private ShellStream? _shell;
     private CancellationTokenSource _cts = new CancellationTokenSource();
@@ -53,7 +55,7 @@ public class SshWsShellHandler : IDisposable
 
     public async Task HandleWebsocketAsync(WebSocket ws, uint cols, uint rows, uint width, uint height, CancellationToken ct)
     {
-        ct.Register(async () => await Close());
+        ct.Register(() => _ = Close());
         _ws = ws;
 
         if (_client is null || !_client.IsConnected)
@@ -67,12 +69,17 @@ public class SshWsShellHandler : IDisposable
             Console.WriteLine("Starting shell...");
             _shell = _client.CreateShellStream("xterm", cols, rows, width, height, 4096);
 
-            _shell.Closed += async (x, y) => await Close();
-
             // This should never fail, channel at this point should be as empty as me.
             _outputQueue.Writer.TryWrite(new ShellOpenedPacket());
 
             Console.WriteLine("Started shell.");
+
+            var wsSendLoop = Task.Run(WebSocketSendLoop, _cts.Token);
+            var wsReceiveLoop = Task.Run(WebSocketReceiveLoop, _cts.Token);
+            var shellReadLoop = Task.Run(ShellReadLoop, _cts.Token);
+            
+            var completed = await Task.WhenAny(wsSendLoop, wsReceiveLoop, shellReadLoop);
+            await completed;
         }
         catch (Exception ex)
         {
@@ -99,14 +106,14 @@ public class SshWsShellHandler : IDisposable
         var recvBuff = new byte[4096];
         bool streamingToShell = false;
         bool ignoring = false;
-        var res = await _ws.ReceiveAsync(new ArraySegment<byte>(recvBuff), _cts.Token);
+        var res = await _ws.ReceiveAsync(new ArraySegment<byte>(recvBuff), CancellationToken.None);
 
-        while (!res.CloseStatus.HasValue)
+        while (!res.CloseStatus.HasValue && !_cts.Token.IsCancellationRequested)
         {
             if (streamingToShell)
             {
                 // I found that there's no async implementation for this :(
-                _shell.Write(recvBuff[0..res.Count]);
+                _shell.Write(recvBuff.AsSpan()[0..res.Count]);
             }
             else if (!ignoring)
             {
@@ -137,9 +144,10 @@ public class SshWsShellHandler : IDisposable
             if (res.EndOfMessage)
             {
                 streamingToShell = false;
+                _shell.Flush();
             }
 
-            res = await _ws.ReceiveAsync(new ArraySegment<byte>(recvBuff), _cts.Token);
+            res = await _ws.ReceiveAsync(new ArraySegment<byte>(recvBuff), CancellationToken.None);
         }
 
         Console.WriteLine("Recv loop finished.");
@@ -150,17 +158,22 @@ public class SshWsShellHandler : IDisposable
         ArgumentNullException.ThrowIfNull(_ws, nameof(_ws));
 
         Console.WriteLine("Send loop started");
-        while (!_ws.CloseStatus.HasValue)
-        {
-            if (_outputQueue.Reader.Completion.Status == TaskStatus.RanToCompletion)
-            {
-                break;
-            }
 
-            var packet = await _outputQueue.Reader.ReadAsync(_cts.Token);
-            var bytes = packet.Serialize();
-            await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, _cts.Token);
+        try
+        {
+            while (!_ws.CloseStatus.HasValue && !_cts.Token.IsCancellationRequested)
+            {
+                if (_outputQueue.Reader.Completion.Status == TaskStatus.RanToCompletion)
+                {
+                    break;
+                }
+
+                var packet = await _outputQueue.Reader.ReadAsync(_cts.Token);
+                var bytes = packet.Serialize();
+                await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Binary, true, CancellationToken.None);
+            }
         }
+        catch (OperationCanceledException) {}
         Console.WriteLine("Send loop finished.");
     }
 
@@ -182,11 +195,26 @@ public class SshWsShellHandler : IDisposable
 
     private async Task Close()
     {
-        await _cts.CancelAsync();
-
-        if (_ws is not null && !_ws.CloseStatus.HasValue)
+        lock (_closeMutex)
         {
+            if (_closed)
+            {
+                return;
+            }
+            _closed = true;
+        }
+        
+        Console.WriteLine("Closing...");
+        await _cts.CancelAsync();
+        Console.WriteLine("Cancelled pending tasks");
+        _outputQueue.Writer.TryComplete();
+
+        if (_ws is not null && !_ws.CloseStatus.HasValue && _ws.State == WebSocketState.Open)
+        {
+            Console.WriteLine("Closing websocket");
             await _ws.CloseAsync(WebSocketCloseStatus.Empty, "", CancellationToken.None);
+            _ws = null;
+            Console.WriteLine("Closed websocket.");
         }
 
         Dispose();
@@ -194,6 +222,7 @@ public class SshWsShellHandler : IDisposable
 
     public void Dispose()
     {
+        Console.WriteLine("Disposing...");
         _shell?.Dispose();
         _shell = null;
 

@@ -1,24 +1,96 @@
 <!doctype html>
 <html>
-    <head>
-        <style>
-            html, body {
-                margin: 0;
-                padding: 0;
-                background-color: black;
-            }
-            body {
-                height: 100vh;
-            }
-            #terminal {
-                width: 100%;
-                height: 100%;
-            }
-        </style>
-        <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
-    </head>
-    <body>
-        <div id="terminal"></div>
-        <script type="module" src="index.js"></script>
-    </body>
+
+  <head>
+    <style>
+    html,
+    body {
+    margin: 0;
+    padding: 0;
+    background-color: black;
+    color: #eee;
+    }
+
+    body {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    }
+
+    main {
+    flex: 1;
+    }
+
+    #open-shell-modal {
+    border: 2px solid crimson;
+    padding: 2rem;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    }
+
+    .buttons {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    }
+
+    #open-shell-form {
+    display: block;
+    }
+
+    #open-shell-form > input {
+    display: block;
+    }
+
+    #open-shell-modal h2 {
+    padding: 0;
+    margin: 0;
+    margin-bottom: 1rem;
+    }
+
+    .terminal {
+    width: 100%;
+    height: 100%;
+    }
+
+    .hidden {
+    display: none;
+    }
+    </style>
+    <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
+  </head>
+
+  <body>
+    <header>
+      <button id="open-shell-btn">Open new shell</button>
+    </header>
+
+    <main>
+
+    </main>
+
+    <div id="open-shell-modal" class="hidden">
+      <h2>Open shell</h2>
+      <form id="open-shell-form">
+        <label for="host">Host</label>
+        <input type="text" id="host" placeholder="host" required />
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="username" required />
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="password" required />
+
+        <div class="buttons">
+          <input type="submit" value="open" />
+          <button type="button" id="cancel-btn">cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <script type="module" src="index.js">
+    </script>
+  </body>
+
 </html>

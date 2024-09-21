@@ -49,13 +49,13 @@ export class ResizeShellPacket {
     view.setUint32(5, this.rows);
     view.setUint32(9, this.width);
     view.setUint32(13, this.height);
+    return ab;
   }
 }
 
 export class SendToShellPacket {
   
   /**
-  * @param { number } shellId u32
   * @param { Uint8Array } data
   */
   constructor(data) {

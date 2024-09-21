@@ -24,10 +24,10 @@ public class ResizeShellPacket : PacketBase
         var r = base.Deserialize(bytes);
         if (r < 0) return r;
 
-        Columns = ReadUint32(bytes, r + 4);
-        Rows = ReadUint32(bytes, r + 8);
-        Width = ReadUint32(bytes, r + 12);
-        Height = ReadUint32(bytes, r + 16);
+        Columns = ReadUint32(bytes, r + 0);
+        Rows = ReadUint32(bytes, r + 4);
+        Width = ReadUint32(bytes, r + 8);
+        Height = ReadUint32(bytes, r + 12);
 
         return (int)MinimalSize;
     }
